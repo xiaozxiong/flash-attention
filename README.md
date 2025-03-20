@@ -522,3 +522,60 @@ If you use this codebase, or otherwise found our work valuable, please cite:
   year={2024}
 }
 ```
+# Note
+## CUDA Version
+
+### Core files
+
+- `csrc/flash_attn/flash_api.cpp`
+- `csrc/flash_attn/src/flash.h`
+- `csrc/flash_attn/src/flash_fwd_launch_template.h`
+- `csrc/flash_attn/src/flash_fwd_kernel.h`
+
+### `flash.h`
+
+Define parameter struct used in flash computation:
+- `Qkv_params`: paramters about Q, K, V matrices
+- `Flash_fwd_params`: inherits from `Qkv_params` and defines variables for forward pass and inference, paged attention, 
+- `Flash_bwd_params`:
+
+Three function templates declaration:
+```cpp
+template<typename T, int Headdim, bool Is_causal> void run_mha_fwd_(Flash_fwd_params &params, cudaStream_t stream);
+template<typename T, int Headdim, bool Is_causal> void run_mha_fwd_splitkv_dispatch(Flash_fwd_params &params, cudaStream_t stream);
+template<typename T, int Headdim, bool Is_causal> void run_mha_bwd_(Flash_bwd_params &params, cudaStream_t stream);
+```
+Definiton of `run_mha_fwd_splitkv_dispatch()` locates `flash_fwd_launch_template.h`.
+Definitions of `run_mha_fwd_()` and `run_mha_bwd_()` are generated via `generate_kernels.py`.
+
+### `generate_kernels.py`
+
+Generate content of .cu files such as `flash_fwd_split_hdim32_bf16_sm80.cu`, all files iwith split contain different **template instantiations** of `run_mha_fwd_splitkv_dispatch`.
+
+Also generate **template specialization** of `run_mha_fwd_` and `run_mha_bwd_` for specific parameters in `flash_fwd_hdim192_fp16_sm80.cu` format file. So the definition of function should be included.
+
+It seems that I can write a function template and use template specialization directly without a generic function template definition. Because I can not find the generic function templates of `run_mha_fwd_` and `run_mha_bwd_`.
+
+```python
+template<>
+void run_mha_bwd_<{DTYPE}, {HEAD_DIM}, {IS_CAUSAL}>(Flash_bwd_params &params, cudaStream_t stream) {{
+    run_mha_bwd_hdim{HEAD_DIM}<{DTYPE}, {IS_CAUSAL}>(params, stream);
+}}
+
+template<>
+void run_mha_fwd_<{DTYPE}, {HEAD_DIM}, {IS_CAUSAL}>(Flash_fwd_params &params, cudaStream_t stream) {{
+    run_mha_fwd_hdim{HEAD_DIM}<{DTYPE}, {IS_CAUSAL}>(params, stream);
+}}
+```
+### `flash_fwd_launch_template.h`
+
+Define templates which are included in other files like `flash_fwd_split_hdim32_bf16_sm80.cu` in which specific template parameters are assigned.
+
+For inference, I would like to focus on `run_mha_fwd_splitkv_dispatch`.
+
+Kernels, e.g., `flash_fwd_splitkv_kernel`, are defined through macro and generated during preprocessing. 
+
+### `flash_fwd_kernel.h`
+Device functions used in kernels defined in `flash_fwd_launch_template.h`.
+
+## Triton Version

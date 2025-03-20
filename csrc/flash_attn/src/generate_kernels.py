@@ -47,8 +47,10 @@ void run_mha_bwd_<{DTYPE}, {HEAD_DIM}, {IS_CAUSAL}>(Flash_bwd_params &params, cu
 
 }} // namespace FLASH_NAMESPACE"""
 
+# @dataclass: simplifies the creation of classes primarily used to store data
 @dataclass
 class Kernel:
+# Attributes:
     sm: int
     dtype: str
     head_dim: int
@@ -73,11 +75,15 @@ class Kernel:
     def filename(self) -> str:
         return f"flash_{self.direction}_hdim{self.head_dim}_{self.dtype}_{'causal_' if self.is_causal == 'true' else ''}sm{self.sm}.cu"
 
+
+#TODO: get all kernel attributes we need
 def get_all_kernels() -> List[Kernel]:
     for direction in ["fwd", "fwd_split", "bwd"]:
         for dtype, head_dim, is_causal, sm in itertools.product(DTYPE_MAP.keys(), HEAD_DIMENSIONS, IS_CAUSAL, SM):
             yield Kernel(sm=sm, dtype=dtype, head_dim=head_dim, is_causal=is_causal, direction=direction)
 
+
+#TODO: write kernel content into .cu file
 def write_kernel(kernel: Kernel, autogen_dir: Path) -> None:
     prelude = """// Copyright (c) 2024, Tri Dao.
 // Splitting the different head dimensions to different files to speed up compilation.
@@ -95,8 +101,9 @@ def main(output_dir: Optional[str]) -> None:
         write_kernel(kernel, output_dir)
 
 if __name__ == "__main__":
+    # Use argparse module to create a command-line argument parser.
     parser = argparse.ArgumentParser(
-        prog="generate_kernels",
+        prog="generate_kernels", # sets the name of the program
         description="Generate the flash_attention kernels template instantiations",
     )
     parser.add_argument(
@@ -106,5 +113,7 @@ if __name__ == "__main__":
         help="Where to generate the kernels "
         " will default to the current directory ",
     )
+    # parses the command-line arguments
     args = parser.parse_args()
+    # the parsed arguments are stored in the args object
     main(args.output_dir)

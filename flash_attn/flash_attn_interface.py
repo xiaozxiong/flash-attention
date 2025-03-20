@@ -16,6 +16,9 @@ else:
 
 # isort: on
 
+# In PyTorch, the stride of a tensor represents how many elements to "skip" 
+# when moving to the next position in a given dimension.
+# contiguous() creates a new tensor that is contiguous
 def maybe_contiguous(x):
     return x.contiguous() if x is not None and x.stride(-1) != 1 else x
 
@@ -78,6 +81,7 @@ else:
     _torch_register_fake_wrapper = noop_register_fake_wrapper
 
 
+# custom operation wrapper
 @_torch_custom_op_wrapper("flash_attn::_flash_attn_forward", mutates_args=(), device_types="cuda")
 def _flash_attn_forward(
     q: torch.Tensor,
@@ -92,7 +96,9 @@ def _flash_attn_forward(
     alibi_slopes: Optional[torch.Tensor],
     return_softmax: bool
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    #! ensure tensor q, k, v are all contiguous in memory
     q, k, v = [maybe_contiguous(x) for x in (q, k, v)]
+    #! cuda library
     out, softmax_lse, S_dmask, rng_state = flash_attn_gpu.fwd(
         q,
         k,
@@ -138,9 +144,12 @@ def _flash_attn_forward_fake(
     return out, softmax_lse, p, rng_state
 
 
+# version.parse(torch.__version__) >= version.parse("2.4.0") is safer
 if torch.__version__ >= "2.4.0":
+    # an officially integrated function in PyTorch 2.4.0+.
     _wrapped_flash_attn_forward = torch.ops.flash_attn._flash_attn_forward
 else:
+    # custom flash attention
     _wrapped_flash_attn_forward = _flash_attn_forward
 
 
@@ -442,6 +451,10 @@ else:
     _wrapped_flash_attn_varlen_backward = _flash_attn_varlen_backward
 
 
+# inherit from torch.autograd.Function
+# a base class that allows you to define custom operations that can be tracked by 
+# the autograd engine for automatic differentiation.
+# must implement two methods: forward and backward
 class FlashAttnQKVPackedFunc(torch.autograd.Function):
     @staticmethod
     def forward(
@@ -458,14 +471,20 @@ class FlashAttnQKVPackedFunc(torch.autograd.Function):
         is_grad_enabled,
     ):
         is_grad = is_grad_enabled and qkv.requires_grad
+        # 1/sqrt(d)
         if softmax_scale is None:
             softmax_scale = qkv.shape[-1] ** (-0.5)
+        # detach() creates a new tensor that shares the same data as the original tensor but without tracking gradients.
+        # (batch_size, seqlen, 3, nheads, headdim)
         q, k, v = qkv[:, :, 0].detach(), qkv[:, :, 1].detach(), qkv[:, :, 2].detach()
+        # shape of q: (batch_size, seqlen, nheads, headdim)
         head_size_og = q.size(3)
+        #? why pad the last dimension
         if head_size_og % 8 != 0:
             q = torch.nn.functional.pad(q, [0, 8 - head_size_og % 8])
             k = torch.nn.functional.pad(k, [0, 8 - head_size_og % 8])
             v = torch.nn.functional.pad(v, [0, 8 - head_size_og % 8])
+        # 
         out_padded, softmax_lse, S_dmask, rng_state =  _wrapped_flash_attn_forward(
             q,
             k,
@@ -1000,6 +1019,10 @@ class FlashAttnVarlenFunc(torch.autograd.Function):
         return dq, dk, dv, None, None, None, None, None, None, None, None, None, None, None, None, None, None
 
 
+# Q, K, V are already stacked into 1 tensor
+#? sliding window local attention
+#? softcap
+
 def flash_attn_qkvpacked_func(
     qkv,
     dropout_p=0.0,
@@ -1045,6 +1068,7 @@ def flash_attn_qkvpacked_func(
             The output of softmax (possibly with different scaling). It also encodes the dropout
             pattern (negative means that location was dropped, nonnegative means it was kept).
     """
+    # apply() is used to invoke the forward pass
     return FlashAttnQKVPackedFunc.apply(
         qkv,
         dropout_p,

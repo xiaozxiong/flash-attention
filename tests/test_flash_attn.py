@@ -25,6 +25,10 @@ is_sm8x = torch.cuda.get_device_capability("cuda")[0] == 8
 is_sm80 = torch.cuda.get_device_capability("cuda") == (8, 0)
 is_sm90 = torch.cuda.get_device_capability("cuda") == (9, 0)
 
+# print device compute capability
+print(f'compute capability = {torch.cuda.get_device_capability("cuda")}')
+print(f'is_sm75 = {is_sm75}, is_sm8x = {is_sm8x}, is_sm80 = {is_sm80}, is_sm90 = {is_sm90}')
+print(f'total memory = {torch.cuda.get_device_properties("cuda").total_memory / 1024 / 1024 / 1024} GB')
 
 def attn_bias_from_alibi_slopes(
     slopes, seqlen_q, seqlen_k, query_padding_mask=None, key_padding_mask=None, causal=False, key_leftpad=None
@@ -563,6 +567,7 @@ def get_dropout_fraction(
     dropped_total = dropped.sum()
     return dropped.sum() / valid.sum()
 
+#TODO: ===== run test function multiple times with different inputs =====
 
 @pytest.mark.parametrize("dtype", ([torch.float16] if is_sm75 else [torch.float16, torch.bfloat16]))
 # @pytest.mark.parametrize("dtype", [torch.float16])
@@ -584,6 +589,7 @@ def get_dropout_fraction(
 @pytest.mark.parametrize("dropout_p", [0.0, 0.17])
 # @pytest.mark.parametrize("dropout_p", [0.0])
 def test_flash_attn_qkvpacked(seqlen, d, dropout_p, causal, local, alibi, deterministic, dtype):
+    # check global memory
     if seqlen >= 2048 and torch.cuda.get_device_properties("cuda").total_memory <= 16 * 2**30:
         pytest.skip()  # Reference implementation OOM
     device = "cuda"
@@ -591,15 +597,19 @@ def test_flash_attn_qkvpacked(seqlen, d, dropout_p, causal, local, alibi, determ
     torch.random.manual_seed(0)
     batch_size = 4
     nheads = 9
+    #! The size of the local attention window used in windowed attention.
     window_size = (-1, -1) if not local else torch.randint(0, seqlen, (2,))
+    # generate packed qkv randomly
     qkv = torch.randn(
         batch_size, seqlen, 3, nheads, d, device=device, dtype=dtype, requires_grad=True
     )
+    #! Attention with Linear Biases (ALiBi): a new approach to positional encoding
     if alibi:
         alibi_slopes = torch.rand(batch_size, nheads, device=device, dtype=torch.float32) * 0.3
         attn_bias = attn_bias_from_alibi_slopes(alibi_slopes, seqlen, seqlen, causal=causal)
     else:
         alibi_slopes, attn_bias = None, None
+    # 
     out, lse, S_dmask = flash_attn_qkvpacked_func(
         qkv,
         dropout_p,
@@ -609,6 +619,7 @@ def test_flash_attn_qkvpacked(seqlen, d, dropout_p, causal, local, alibi, determ
         deterministic=deterministic,
         return_attn_probs=True,
     )
+    # 
     if dropout_p > 0.0:
         S_dmask_converted = convert_flash_attn_S_to_softmax(
             S_dmask,

@@ -502,7 +502,7 @@ class CachedWheelsCommand(_bdist_wheel):
             # If the wheel could not be downloaded, build from source
             super().run()
 
-
+#! control cores of compilation by set MAX_JOBS
 class NinjaBuildExtension(BuildExtension):
     def __init__(self, *args, **kwargs) -> None:
         # do not override env MAX_JOBS if already exists
@@ -519,6 +519,7 @@ class NinjaBuildExtension(BuildExtension):
             # pick lower value of jobs based on cores vs memory metric to minimize oom and swap usage during compilation
             max_jobs = max(1, min(max_num_jobs_cores, max_num_jobs_memory))
             os.environ["MAX_JOBS"] = str(max_jobs)
+            # print(f"MAX JOBS = {str(max_jobs)}")
 
         super().__init__(*args, **kwargs)
 
