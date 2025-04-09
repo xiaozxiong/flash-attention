@@ -1,5 +1,5 @@
 # Dive into FlashAttention
-## APIs
+## FLA APIs
 
 ```cpp
 //TODO: bind functions
@@ -15,6 +15,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 
 Currently, FLA can compute attention with paged KV cache, but in this case variable length is not supported. When we want varible length feature, we can not have PagedAttention. Besides, FLA doesn't support custom mask except causal mask.
 
+## Flash-Decoding for long-context inference
+
+Due to the fairly short q sequence and much longer kv sequences, spliting q would lead to low utilization of GPU. Therefore, we need to split k and v, then recuce the result across SMs. This strategy is different with workload partition in traing and prefill.
 
 ## CUDA Version
 
@@ -72,3 +75,14 @@ Kernels, e.g., `flash_fwd_splitkv_kernel`, are defined through macro and generat
 Device functions used in kernels defined in `flash_fwd_launch_template.h`.
 
 ## Triton Version
+
+### Custom Mask
+
+[flashattention2-custom-mask](https://github.com/alexzhang13/flashattention2-custom-mask.git) is a triton version of FLA2 which supports custom mask.
+
+## Similar Works
+
+### FlashInfer
+
+
+### FlexAttention in PyTorch
