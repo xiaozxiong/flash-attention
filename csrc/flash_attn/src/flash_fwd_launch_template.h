@@ -116,7 +116,7 @@ void run_flash_fwd(Flash_fwd_params &params, cudaStream_t stream) {
     });
 }
 
-//TODO: run 
+//TODO: invoke kernel
 template<typename Kernel_traits, bool Is_causal>
 void run_flash_splitkv_fwd(Flash_fwd_params &params, cudaStream_t stream) {
     static_assert(!Kernel_traits::Is_Q_in_regs, "SplitKV implementation does not support Is_Q_in_regs");
@@ -179,7 +179,7 @@ void run_flash_splitkv_fwd(Flash_fwd_params &params, cudaStream_t stream) {
     }
 }
 
-//TODO:  template definition used  split_.cu files
+//TODO: template definition with split
 template<typename T, int Headdim, bool Is_causal>
 void run_mha_fwd_splitkv_dispatch(Flash_fwd_params &params, cudaStream_t stream) {
     constexpr static int kBlockM = 64;  // Fixed for all head dimensions

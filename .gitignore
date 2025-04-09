@@ -30,3 +30,4 @@ var/
 
 # Dev
 venv
+flash_attn/__pycache__
